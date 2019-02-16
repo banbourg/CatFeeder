@@ -1,0 +1,7 @@
+identifiers.py
+*.swp
+*.log
+__pycache__/
+.idea/
+*.pem
+*.pyc

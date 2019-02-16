@@ -1,6 +1,5 @@
-#!/usr/bin/python
-
 try:
+    import sys
     import ssl
     import socket   
     import pprint
@@ -24,46 +23,6 @@ logging.basicConfig(filename="feed_requests.log",
 logger = logging.getLogger(__name__)
 
 
-class CatFeedServer:
-    def __init__(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Do I need to set sock options?
-        
-        try:
-            self.sock.bind((identifiers.HOST, identifiers.PORT))
-        except self.sock.error as se:
-            logger.error("Binding error: {}".format(se))
-            raise
-        
-        self.sock.listen(2)
-        logger.info("Created server. Listening on port {}".format(identifiers.PORT))
-
-        self.context = ssl.create_default_context(
-            purpose=ssl.Purpose.CLIENT_AUTH,
-            cafile="client_cert.pem"
-            )
-        logger.debug("Created context")
-
-    def authenticate_client(self, client_sock):
-        try:
-            self.secure = self.context.wrap_socket(client_sock, server_side=True, keyfile="server_private.pem", 
-                                                   certfile="server_cert.pem", password=identifiers.PW)
-        except ssl.SSLError as ssl_e:
-            logger.error("Error wrapping server-side client socket: {}".format(ssl_e))
-            raise
-        
-        logger.info("Accepted incoming request from {}, with cypher {}".format(self.secure.getpeername(),
-                                                                               self.secure.cipher()))
-        
-        cert = self.secure.getpeercert()
-        print(pprint.pformat(self.secure.getpeercert()))
-        # if not cert or ("CPOU_FeedCat_Client") not in cert["
-   
-    def cleanup(self):
-        self.secure.close()
-        self.sock.close()
-
-
 def rotate():
     GPIO.setmode(GPIO.BCM)  # GPIO numbering
     GPIO.setup(18, GPIO.OUT)
@@ -78,8 +37,8 @@ def rotate():
                 dc = 2.5 if (i % 2 == 0) else 7.5
                 servo.ChangeDutyCycle(dc)
                 time.sleep(3)
-        except:
-            logger.error("Error operating servo")
+        except Exception as servo_e:
+            logger.error("Error operating servo: {}".format(servo_e))
         finally:
             servo.stop()
 
@@ -91,20 +50,31 @@ def rotate():
         logger.info("Stopped")
 
 
-if __name__ == '__main__':
-    try:
-        s = CatFeedServer()
-    except Exception as serv_exc:
-        logger.error("Error creating server: {}".format(serv_exc))
-        sys.exit(1)
+def handle(a_connstream):
+    data = a_connstream.recv(1024)
+    while data:
+        print(data)
+        data = a_connstream.recv(1024)
 
-    try:
-        client, fromaddr = s.sock.accept()
-        s.authenticate_client(client)
-        data = s.secure.read(1024)
-        s.secure.write(data)
-    except Exception as conn_exc:
-        logger.error("Error receiving connection: {}".format(conn_exc))
-        sys.exit(1)
-    finally:
-        s.cleanup()
+    if data == b"feed":
+        rotate()
+
+
+if __name__ == '__main__':
+
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile="server_cert.pem", keyfile="server_private.pem", password=identifiers.PW)
+    
+    bindsocket = socket.socket()
+    bindsocket.bind((identifiers.HOST, identifiers.PORT))
+    bindsocket.listen(5)
+    logger.info("Created server socket, listening on port {}".format(identifiers.PORT))
+
+    while True:
+        newsocket, fromaddr = bindsocket.accept()
+        logger.info("Received incoming connection from {}".format(fromaddr))
+        connstream = context.wrap_socket(newsocket, server_side=True)
+        try:
+            handle(connstream)
+        finally:
+            connstream.close()
