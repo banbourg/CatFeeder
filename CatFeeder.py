@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 try:
     import sys
     import ssl
@@ -15,7 +17,7 @@ try:
 except ImportError as i_exc:
     sys.exit("Import error on {}".format(i_exc))
 
-logging.basicConfig(filename="feed_requests.log",
+logging.basicConfig(# filename="feed_requests.log",
                     format="%(asctime)s - %(name)s - %(levelname)-5s - %(message)s",
                     level=logging.INFO,
                     datefmt="%Y-%m-%d %H:%M:%S")
@@ -57,16 +59,19 @@ def handle(a_connstream):
         data = a_connstream.recv(1024)
 
     if data == b"feed":
-        rotate()
+        # rotate()
+        print("woop")
 
 
 if __name__ == '__main__':
 
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.verify_mode = ssl.CERT_REQUIRED
     context.load_cert_chain(certfile="server_cert.pem", keyfile="server_private.pem", password=identifiers.PW)
+    context.load_verify_locations(cafile="client_cert.pem")
     
-    bindsocket = socket.socket()
-    bindsocket.bind((identifiers.HOST, identifiers.PORT))
+    bindsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    bindsocket.bind((identifiers.PI_IP, identifiers.PORT))
     bindsocket.listen(5)
     logger.info("Created server socket, listening on port {}".format(identifiers.PORT))
 
@@ -74,7 +79,12 @@ if __name__ == '__main__':
         newsocket, fromaddr = bindsocket.accept()
         logger.info("Received incoming connection from {}".format(fromaddr))
         connstream = context.wrap_socket(newsocket, server_side=True)
+        
+        cert = connstream.getpeercert()
         try:
+            ssl.match_hostname(cert, identifiers.CLIENTNAME)
             handle(connstream)
+        except ssl.CertificateError as cert_err:
+            logger.error(cert_err)
         finally:
             connstream.close()
